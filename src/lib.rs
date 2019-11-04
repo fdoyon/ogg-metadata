@@ -99,10 +99,10 @@ impl std::error::Error for OggMetadataError {
 		}
 	}
 
-	fn cause(&self) -> Option<&std::error::Error> {
+	fn cause(&self) -> Option<&dyn std::error::Error> {
 		match self {
 			&OggMetadataError::ReadError(ref err) =>
-				Some(err as &std::error::Error),
+				Some(err),
 			_ => None
 		}
 	}
@@ -132,9 +132,9 @@ impl From<OggReadError> for OggMetadataError {
 fn seek_before_end<'a, T :io::Read + io::Seek + 'a>(pck_rdr :&mut PacketReader<T>,
 		offs :u64) -> Result<u64, OggMetadataError> {
 	use std::io::SeekFrom;
-	let end_pos = try!(pck_rdr.seek_bytes(SeekFrom::End(0)));
+	let end_pos = pck_rdr.seek_bytes(SeekFrom::End(0))?;
 	let end_pos_to_seek = ::std::cmp::min(end_pos, offs);
-	return Ok(try!(pck_rdr.seek_bytes(SeekFrom::End(-(end_pos_to_seek as i64)))));
+	return Ok(pck_rdr.seek_bytes(SeekFrom::End(-(end_pos_to_seek as i64)))?);
 }
 
 fn get_absgp_of_last_packet<'a, T :io::Read + io::Seek + 'a>(pck_rdr :&mut PacketReader<T>)
@@ -142,13 +142,13 @@ fn get_absgp_of_last_packet<'a, T :io::Read + io::Seek + 'a>(pck_rdr :&mut Packe
 	// 150 kb are enough so that we are guaranteed to find a
 	// valid page inside them (unless there is unused space
 	// between pages, but then there is no guaranteed limit).
-	try!(seek_before_end(pck_rdr, 150 * 1024));
-	let mut pck = try!(pck_rdr.read_packet_expected());
+	seek_before_end(pck_rdr, 150 * 1024)?;
+	let mut pck = pck_rdr.read_packet_expected()?;
 	// Now read until the last packet, and get its absgp
-	while !pck.last_packet {
-		pck = try!(pck_rdr.read_packet_expected());
+	while !pck.last_in_stream() {
+		pck = pck_rdr.read_packet_expected()?;
 	}
-	return Ok(pck.absgp_page);
+	return Ok(pck.absgp_page());
 }
 
 fn identify_packet_data_by_magic(pck_data :&[u8]) -> Option<(usize, BareOggFormat)> {
@@ -199,7 +199,7 @@ fn parse_format(pck_data :&[u8], bare_format :BareOggFormat,
 	use OggFormat::*;
 	Ok(match bare_format {
 		BareOggFormat::Vorbis => {
-			let ident_hdr = try!(vorbis::read_header_ident(pck_data));
+			let ident_hdr = vorbis::read_header_ident(pck_data)?;
 			Vorbis(VorbisMetadata {
 				channels : ident_hdr.channels,
 				sample_rate : ident_hdr.sample_rate,
@@ -207,7 +207,7 @@ fn parse_format(pck_data :&[u8], bare_format :BareOggFormat,
 			})
 		},
 		BareOggFormat::Opus => {
-			let ident_hdr = try!(opus::read_header_ident(pck_data));
+			let ident_hdr = opus::read_header_ident(pck_data)?;
 			Opus(OpusMetadata {
 				output_channels : ident_hdr.output_channels,
 				length_in_48khz_samples : last_packet_absgp.map(
@@ -215,7 +215,7 @@ fn parse_format(pck_data :&[u8], bare_format :BareOggFormat,
 			})
 		},
 		BareOggFormat::Theora => {
-			let ident_hdr = try!(theora::read_header_ident(pck_data));
+			let ident_hdr = theora::read_header_ident(pck_data)?;
 			Theora(TheoraMetadata {
 				pixels_width : ident_hdr.picture_region_width,
 				pixels_height : ident_hdr.picture_region_height,
@@ -245,7 +245,7 @@ fn parse_format(pck_data :&[u8], bare_format :BareOggFormat,
 pub fn read_format<'a, T :io::Read + io::Seek + 'a>(rdr :T)
 		-> Result<Vec<OggFormat>, OggMetadataError> {
 	let mut pck_rdr = PacketReader::new(rdr);
-	let pck = try!(pck_rdr.read_packet_expected());
+	let pck = pck_rdr.read_packet_expected()?;
 
 	let id = identify_packet_data_by_magic(&pck.data);
 	let id_inner = match id { Some(v) => v,
@@ -256,13 +256,13 @@ pub fn read_format<'a, T :io::Read + io::Seek + 'a>(rdr :T)
 	let simple_seek_to_end_is_needed = needs_last_packet_absgp(id_inner.1);
 
 	let last_packet_absgp = if simple_seek_to_end_is_needed {
-		Some(try!(get_absgp_of_last_packet(&mut pck_rdr)))
+		Some(get_absgp_of_last_packet(&mut pck_rdr)?)
 	} else {
 		None
 	};
 
-	res.push(try!(parse_format(&pck.data[id_inner.0..],
-		id_inner.1, last_packet_absgp)));
+	res.push(parse_format(&pck.data[id_inner.0..],
+						  id_inner.1, last_packet_absgp)?);
 
 	if id_inner.1 == BareOggFormat::Skeleton {
 		use std::collections::HashMap;
@@ -271,9 +271,9 @@ pub fn read_format<'a, T :io::Read + io::Seek + 'a>(rdr :T)
 		// and record any opening streams.
 		let mut streams = HashMap::new();
 		loop {
-			let pck_cur = try!(pck_rdr.read_packet_expected());
+			let pck_cur = pck_rdr.read_packet_expected()?;
 
-			if pck_cur.stream_serial == pck.stream_serial {
+			if pck_cur.stream_serial() == pck.stream_serial() {
 				/*
 				// "fisbone\0"
 				let fisbone_magic = [0x66, 0x69, 0x73, 0x62, 0x6f, 0x6e, 0x65, 0x00];
@@ -289,12 +289,12 @@ pub fn read_format<'a, T :io::Read + io::Seek + 'a>(rdr :T)
 					_ => {},
 				}
 				*/
-				if pck_cur.last_packet {
+				if pck_cur.last_in_stream(){
 					break;
 				}
 			}
 
-			if !pck_cur.first_packet {
+			if !pck_cur.first_in_page() {
 				continue;
 			}
 			let id = identify_packet_data_by_magic(&pck_cur.data);
@@ -302,13 +302,13 @@ pub fn read_format<'a, T :io::Read + io::Seek + 'a>(rdr :T)
 				res.push(OggFormat::Unknown);
 				continue
 			} };
-			streams.insert(pck_cur.stream_serial, (id_inner, pck_cur));
+			streams.insert(pck_cur.stream_serial(), (id_inner, pck_cur));
 		}
 
 		// Now seek to right before the end to get the last packets of the content.
 		// 200 kb are just a guessed number and they might be totally wrong.
 		// Can this guess be improved??
-		try!(seek_before_end(&mut pck_rdr, 200 * 1024));
+		seek_before_end(&mut pck_rdr, 200 * 1024)?;
 
 		'pseudo_return: loop {
 			// This pseudo_try is our local replacement for try,
@@ -339,18 +339,18 @@ pub fn read_format<'a, T :io::Read + io::Seek + 'a>(rdr :T)
 				let pck_cur = pseudo_try!(pck_rdr.read_packet_expected());
 
 				// We are only interested in last packets.
-				if !pck_cur.last_packet {
+				if !pck_cur.last_in_stream() {
 					continue;
 				}
-				let stream = match streams.remove(&pck_cur.stream_serial) {
+				let stream = match streams.remove(&pck_cur.stream_serial()) {
 					Some(v) => v, None => continue };
 
 				if (stream.0).1 == BareOggFormat::Skeleton {
 					// Skeleton inside skeleton is invalid.
-					try!(Err(OggMetadataError::UnrecognizedFormat));
+					Err(OggMetadataError::UnrecognizedFormat)?;
 				}
-				let st = try!(parse_format(&(stream.1).data[(stream.0).0..],
-					(stream.0).1, Some(pck_cur.absgp_page)));
+				let st = parse_format(&(stream.1).data[(stream.0).0..],
+									  (stream.0).1, Some(pck_cur.absgp_page()))?;
 				res.push(st);
 			}
 			break;
@@ -358,8 +358,8 @@ pub fn read_format<'a, T :io::Read + io::Seek + 'a>(rdr :T)
 
 		// Add all streams we couldn't find a last packet for.
 		for (_,stream) in streams.iter() {
-			let st = try!(parse_format(&(stream.1).data[(stream.0).0..],
-				(stream.0).1, None));
+			let st = parse_format(&(stream.1).data[(stream.0).0..],
+								  (stream.0).1, None)?;
 			res.push(st);
 		}
 	}
