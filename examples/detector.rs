@@ -8,23 +8,25 @@
 
 extern crate ogg_metadata;
 
-use ogg_metadata::{OggMetadataError, read_format};
+use ::ogg_metadata::{read_format, OggMetadataError};
 
 use std::env;
 use std::fs::File;
 
 fn main() {
-	match run() {
-		Ok(_) =>(),
-		Err(err) => println!("Error: {}", err),
-	}
+    match run() {
+        Ok(_) => (),
+        Err(err) => println!("Error: {}", err),
+    }
 }
 
 fn run() -> Result<(), OggMetadataError> {
-	let file_path = env::args().nth(1).expect("No arg found. Please specify a file to open.");
-	println!("Opening file: {}", file_path);
-	let mut f = File::open(file_path)?;
-	let format = read_format(&mut f);
-	println!("Format of the file is: {:?}", format);
-	return Ok(());
+    let file_path = env::args()
+        .nth(1)
+        .expect("No arg found. Please specify a file to open.");
+    println!("Opening file: {}", file_path);
+    let mut f = File::open(file_path)?;
+    let format = read_format(&mut f);
+    println!("Format of the file is: {:?}", format);
+    return Ok(());
 }

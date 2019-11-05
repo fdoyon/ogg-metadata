@@ -8,6 +8,7 @@ keywords = ["ogg", "vorbis", "opus", "theora", "speex"]
 documentation = "https://docs.rs/ogg_metadata/0.4.1"
 repository = "https://github.com/est31/ogg-metadata"
 readme = "README.md"
+edition="2018"
 
 [dependencies]
 byteorder = "1.0"
