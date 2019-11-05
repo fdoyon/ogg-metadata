@@ -87,7 +87,7 @@ pub trait AudioMetadata {
 pub enum OggMetadataError {
     /// Bad format or not one recognized by this crate.
     UnrecognizedFormat,
-    /// I/O error occured.
+    /// I/O error occurred.
     ReadError(std::io::Error),
 }
 
@@ -167,7 +167,7 @@ fn identify_packet_data_by_magic(pck_data: &[u8]) -> Option<(usize, BareOggForma
     // https://wiki.xiph.org/Ogg_Skeleton_4#Ogg_Skeleton_version_4.0_Format_Specification
     let skeleton_magic = &[0x66, 105, 115, 104, 101, 97, 100, 0];
 
-    if pck_data.len() < 1 {
+    if pck_data.is_empty() {
         return None;
     }
 
@@ -185,7 +185,7 @@ fn identify_packet_data_by_magic(pck_data: &[u8]) -> Option<(usize, BareOggForma
     Some(ret)
 }
 
-/// Returns whether the rich metadata has lenth information,
+/// Returns whether the rich metadata has length information,
 /// which requires retrieving of the absgp of the last packet.
 fn needs_last_packet_absgp(bare_format: BareOggFormat) -> bool {
     match bare_format {
@@ -365,7 +365,7 @@ fn parse_format(
 
                 if (stream.0).1 == BareOggFormat::Skeleton {
                     // Skeleton inside skeleton is invalid.
-                    Err(OggMetadataError::UnrecognizedFormat)?;
+                    return Err(OggMetadataError::UnrecognizedFormat);
                 }
                 let st = parse_format(
                     &(stream.1).data[(stream.0).0..],
